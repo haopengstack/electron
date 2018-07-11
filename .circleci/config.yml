@@ -315,6 +315,7 @@ jobs:
   electron-linux-gn:
     environment:
       NIGHTLY_BUILD: true
+      BASH_ENV: ~/.bashrc
     docker:
       - image: electronbuilds/electron:0.0.8
     resource_class: 2xlarge
@@ -337,7 +338,6 @@ jobs:
               },
             ]
             GCLIENT
-            source $BASH_ENV
 
             gclient sync --with_branch_heads --with_tags
       - run:
