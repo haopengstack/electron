@@ -315,7 +315,6 @@ jobs:
   electron-linux-gn:
     environment:
       NIGHTLY_BUILD: true
-      BASH_ENV: ~/.bashrc
     docker:
       - image: electronbuilds/electron:0.0.8
     resource_class: 2xlarge
@@ -326,9 +325,11 @@ jobs:
             git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
             echo 'export PATH=$PATH:$CIRCLE_WORKING_DIRECTORY/depot_tools' >> $BASH_ENV
             source $BASH_ENV
+            echo $PATH
       - run:
           name: Gclient sync
           command: |
+            echo $PATH
             cat > .gclient <<-GCLIENT
             solutions = [
               {
