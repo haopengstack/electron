@@ -323,7 +323,7 @@ jobs:
           name: Setup depot tools
           command: |
             git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
-            echo 'export PATH=$PATH:$CIRCLE_WORKING_DIRECTORY/depot_tools' >> $BASH_ENV
+            echo 'export PATH=$PATH:`pwd`/depot_tools' >> $BASH_ENV
             source $BASH_ENV
             echo $PATH
       - run:
