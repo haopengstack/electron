@@ -337,6 +337,7 @@ jobs:
               },
             ]
             GCLIENT
+            source $BASH_ENV
 
             gclient sync --with_branch_heads --with_tags
       - run:
