@@ -37,6 +37,12 @@ bool SystemPreferences::IsInvertedColorScheme() {
   return color_utils::IsInvertedColorScheme();
 }
 
+#if !defined(OS_WIN)
+bool SystemPreferences::IsHighContrastColorScheme() {
+  return false;
+}
+#endif  // !defined(OS_WIN)
+
 // static
 mate::Handle<SystemPreferences> SystemPreferences::Create(
     v8::Isolate* isolate) {
@@ -77,9 +83,20 @@ void SystemPreferences::BuildPrototype(
       .SetMethod("removeUserDefault", &SystemPreferences::RemoveUserDefault)
       .SetMethod("isSwipeTrackingFromScrollEventsEnabled",
                  &SystemPreferences::IsSwipeTrackingFromScrollEventsEnabled)
+      .SetMethod("getEffectiveAppearance",
+                 &SystemPreferences::GetEffectiveAppearance)
+      .SetMethod("getAppLevelAppearance",
+                 &SystemPreferences::GetAppLevelAppearance)
+      .SetMethod("setAppLevelAppearance",
+                 &SystemPreferences::SetAppLevelAppearance)
+      .SetMethod("getMediaAccessStatus",
+                 &SystemPreferences::GetMediaAccessStatus)
+      .SetMethod("askForMediaAccess", &SystemPreferences::AskForMediaAccess)
 #endif
       .SetMethod("isInvertedColorScheme",
                  &SystemPreferences::IsInvertedColorScheme)
+      .SetMethod("isHighContrastColorScheme",
+                 &SystemPreferences::IsHighContrastColorScheme)
       .SetMethod("isDarkMode", &SystemPreferences::IsDarkMode);
 }
 

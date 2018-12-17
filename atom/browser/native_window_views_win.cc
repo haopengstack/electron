@@ -4,6 +4,7 @@
 
 #include "atom/browser/browser.h"
 #include "atom/browser/native_window_views.h"
+#include "atom/common/atom_constants.h"
 #include "content/public/browser/browser_accessibility_state.h"
 #include "ui/base/win/accessibility_misc_utils.h"
 
@@ -18,9 +19,9 @@ namespace {
 const char* AppCommandToString(int command_id) {
   switch (command_id) {
     case APPCOMMAND_BROWSER_BACKWARD:
-      return "browser-backward";
+      return kBrowserBackward;
     case APPCOMMAND_BROWSER_FORWARD:
-      return "browser-forward";
+      return kBrowserForward;
     case APPCOMMAND_BROWSER_REFRESH:
       return "browser-refresh";
     case APPCOMMAND_BROWSER_STOP:
@@ -141,7 +142,7 @@ HHOOK NativeWindowViews::mouse_hook_ = NULL;
 
 bool NativeWindowViews::ExecuteWindowsCommand(int command_id) {
   std::string command = AppCommandToString(command_id);
-  NotifyWindowExecuteWindowsCommand(command);
+  NotifyWindowExecuteAppCommand(command);
 
   return false;
 }
@@ -187,6 +188,17 @@ bool NativeWindowViews::PreHandleMSG(UINT message,
       if (HIWORD(w_param) == THBN_CLICKED)
         return taskbar_host_.HandleThumbarButtonEvent(LOWORD(w_param));
       return false;
+    case WM_SIZING: {
+      bool prevent_default = false;
+      NotifyWindowWillResize(gfx::Rect(*reinterpret_cast<RECT*>(l_param)),
+                             &prevent_default);
+      if (prevent_default) {
+        ::GetWindowRect(GetAcceleratedWidget(),
+                        reinterpret_cast<RECT*>(l_param));
+        return true;  // Tells Windows that the Sizing is handled.
+      }
+      return false;
+    }
     case WM_SIZE: {
       // Handle window state change.
       HandleSizeEvent(w_param, l_param);
@@ -197,8 +209,16 @@ bool NativeWindowViews::PreHandleMSG(UINT message,
       return false;
     }
     case WM_MOVING: {
-      if (!movable_)
-        ::GetWindowRect(GetAcceleratedWidget(), (LPRECT)l_param);
+      bool prevent_default = false;
+      NotifyWindowWillMove(gfx::Rect(*reinterpret_cast<RECT*>(l_param)),
+                           &prevent_default);
+      if (!movable_ || prevent_default) {
+        ::GetWindowRect(GetAcceleratedWidget(),
+                        reinterpret_cast<RECT*>(l_param));
+        return true;  // Tells Windows that the Move is handled. If not true,
+                      // frameless windows can be moved using
+                      // -webkit-app-region: drag elements.
+      }
       return false;
     }
     case WM_MOVE: {

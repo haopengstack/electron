@@ -13,7 +13,7 @@ not have the keyboard focus. You should not use this module until the `ready`
 event of the app module is emitted.
 
 ```javascript
-const {app, globalShortcut} = require('electron')
+const { app, globalShortcut } = require('electron')
 
 app.on('ready', () => {
   // Register a 'CommandOrControl+X' shortcut listener.
@@ -51,6 +51,17 @@ Registers a global shortcut of `accelerator`. The `callback` is called when
 the registered shortcut is pressed by the user.
 
 When the accelerator is already taken by other applications, this call will
+silently fail. This behavior is intended by operating systems, since they don't
+want applications to fight for global shortcuts.
+
+### `globalShortcut.registerAll(accelerators, callback)`
+
+* `accelerators` String[] - an array of [Accelerator](accelerator.md)s.
+* `callback` Function
+
+Registers a global shortcut of all `accelerator` items in `accelerators`. The `callback` is called when any of the registered shortcuts are pressed by the user.
+
+When a given accelerator is already taken by other applications, this call will
 silently fail. This behavior is intended by operating systems, since they don't
 want applications to fight for global shortcuts.
 

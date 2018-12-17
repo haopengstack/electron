@@ -7,15 +7,15 @@ Process: [Main](../glossary.md#main-process)
 An example of showing a dialog to select multiple files and directories:
 
 ```javascript
-const {dialog} = require('electron')
-console.log(dialog.showOpenDialog({properties: ['openFile', 'openDirectory', 'multiSelections']}))
+const { dialog } = require('electron')
+console.log(dialog.showOpenDialog({ properties: ['openFile', 'openDirectory', 'multiSelections'] }))
 ```
 
 The Dialog is opened from Electron's main thread. If you want to use the dialog
 object from a renderer process, remember to access it using the remote:
 
 ```javascript
-const {dialog} = require('electron').remote
+const { dialog } = require('electron').remote
 console.log(dialog)
 ```
 
@@ -52,8 +52,8 @@ The `dialog` module has the following methods:
     boxes.
   * `securityScopedBookmarks` Boolean (optional) _masOS_ _mas_ - Create [security scoped bookmarks](https://developer.apple.com/library/content/documentation/Security/Conceptual/AppSandboxDesignGuide/AppSandboxInDepth/AppSandboxInDepth.html#//apple_ref/doc/uid/TP40011183-CH3-SW16) when packaged for the Mac App Store.
 * `callback` Function (optional)
-  * `filePaths` String[] - An array of file paths chosen by the user
-  * `bookmarks` String[] _macOS_ _mas_ - An array matching the `filePaths` array of base64 encoded strings which contains security scoped bookmark data. `securityScopedBookmarks` must be enabled for this to be populated.
+  * `filePaths` String[] (optional) - An array of file paths chosen by the user. If the dialog is cancelled this will be `undefined`.
+  * `bookmarks` String[] (optional) _macOS_ _mas_ - An array matching the `filePaths` array of base64 encoded strings which contains security scoped bookmark data. `securityScopedBookmarks` must be enabled for this to be populated.
 
 Returns `String[]`, an array of file paths chosen by the user,
 if the callback is provided it returns `undefined`.
@@ -66,10 +66,10 @@ selected when you want to limit the user to a specific type. For example:
 ```javascript
 {
   filters: [
-    {name: 'Images', extensions: ['jpg', 'png', 'gif']},
-    {name: 'Movies', extensions: ['mkv', 'avi', 'mp4']},
-    {name: 'Custom File Type', extensions: ['as']},
-    {name: 'All Files', extensions: ['*']}
+    { name: 'Images', extensions: ['jpg', 'png', 'gif'] },
+    { name: 'Movies', extensions: ['mkv', 'avi', 'mp4'] },
+    { name: 'Custom File Type', extensions: ['as'] },
+    { name: 'All Files', extensions: ['*'] }
   ]
 }
 ```
@@ -101,10 +101,10 @@ shown.
     displayed in front of the filename text field.
   * `showsTagField` Boolean (optional) _macOS_ - Show the tags input box,
     defaults to `true`.
-  * `securityScopedBookmarks` Boolean (optional) _masOS_ _mas_ - Create a [security scoped bookmark](https://developer.apple.com/library/content/documentation/Security/Conceptual/AppSandboxDesignGuide/AppSandboxInDepth/AppSandboxInDepth.html#//apple_ref/doc/uid/TP40011183-CH3-SW16) when packaged for the Mac App Store. If this option is enabled and the file doesn't already exist a blank file will be created at the chosen path.
+  * `securityScopedBookmarks` Boolean (optional) _macOS_ _mas_ - Create a [security scoped bookmark](https://developer.apple.com/library/content/documentation/Security/Conceptual/AppSandboxDesignGuide/AppSandboxInDepth/AppSandboxInDepth.html#//apple_ref/doc/uid/TP40011183-CH3-SW16) when packaged for the Mac App Store. If this option is enabled and the file doesn't already exist a blank file will be created at the chosen path.
 * `callback` Function (optional)
-  * `filename` String
-  * `bookmark` String _macOS_ _mas_ - Base64 encoded string which contains the security scoped bookmark data for the saved file. `securityScopedBookmarks` must be enabled for this to be present.
+  * `filename` String (optional) If the dialog is cancelled this will be `undefined`.
+  * `bookmark` String (optional) _macOS_ _mas_ - Base64 encoded string which contains the security scoped bookmark data for the saved file. `securityScopedBookmarks` must be enabled for this to be present.
 
 Returns `String`, the path of the file chosen by the user,
 if a callback is provided it returns `undefined`.
@@ -141,7 +141,7 @@ will be passed via `callback(filename)`.
   * `cancelId` Integer (optional) - The index of the button to be used to cancel the dialog, via
     the `Esc` key. By default this is assigned to the first button with "cancel" or "no" as the
     label. If no such labeled buttons exist and this option is not set, `0` will be used as the
-    return value or callback response. This option is ignored on Windows.
+    return value or callback response.
   * `noLink` Boolean (optional) - On Windows Electron will try to figure out which one of
     the `buttons` are common buttons (like "Cancel" or "Yes"), and show the
     others as command links in the dialog. This can make the dialog appear in

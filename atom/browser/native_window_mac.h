@@ -7,7 +7,9 @@
 
 #import <Cocoa/Cocoa.h>
 
+#include <memory>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "atom/browser/native_window.h"
@@ -52,6 +54,8 @@ class NativeWindowMac : public NativeWindow {
   bool IsFullscreen() const override;
   void SetBounds(const gfx::Rect& bounds, bool animate = false) override;
   gfx::Rect GetBounds() override;
+  bool IsNormal() override;
+  gfx::Rect GetNormalBounds() override;
   void SetContentSizeConstraints(
       const extensions::SizeConstraints& size_constraints) override;
   void SetResizable(bool resizable) override;
@@ -103,11 +107,13 @@ class NativeWindowMac : public NativeWindow {
   gfx::NativeView GetNativeView() const override;
   gfx::NativeWindow GetNativeWindow() const override;
   gfx::AcceleratedWidget GetAcceleratedWidget() const override;
+  NativeWindowHandle GetNativeWindowHandle() const override;
   void SetProgressBar(double progress, const ProgressState state) override;
   void SetOverlayIcon(const gfx::Image& overlay,
                       const std::string& description) override;
 
-  void SetVisibleOnAllWorkspaces(bool visible) override;
+  void SetVisibleOnAllWorkspaces(bool visible,
+                                 bool visibleOnFullScreen) override;
   bool IsVisibleOnAllWorkspaces() override;
 
   void SetAutoHideCursor(bool auto_hide) override;
@@ -118,6 +124,8 @@ class NativeWindowMac : public NativeWindow {
   void MoveTabToNewWindow() override;
   void ToggleTabBar() override;
   bool AddTabbedWindow(NativeWindow* window) override;
+
+  bool SetWindowButtonVisibility(bool visible) override;
 
   void SetVibrancy(const std::string& type) override;
   void SetTouchBar(
@@ -193,12 +201,17 @@ class NativeWindowMac : public NativeWindow {
   // The "titleBarStyle" option.
   TitleBarStyle title_bar_style_ = NORMAL;
 
+  // The visibility mode of window button controls when explicitly set through
+  // setWindowButtonVisibility().
+  base::Optional<bool> window_button_visibility_;
+
   // Simple (pre-Lion) Fullscreen Settings
   bool always_simple_fullscreen_ = false;
   bool is_simple_fullscreen_ = false;
   bool was_maximizable_ = false;
   bool was_movable_ = false;
   NSRect original_frame_;
+  NSInteger original_level_;
   NSUInteger simple_fullscreen_mask_;
 
   base::scoped_nsobject<NSColor> background_color_before_vibrancy_;

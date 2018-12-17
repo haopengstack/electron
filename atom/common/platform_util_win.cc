@@ -240,33 +240,6 @@ bool ShowItemInFolder(const base::FilePath& full_path) {
   if (dir.empty())
     return false;
 
-  typedef HRESULT(WINAPI * SHOpenFolderAndSelectItemsFuncPtr)(
-      PCIDLIST_ABSOLUTE pidl_Folder, UINT cidl, PCUITEMID_CHILD_ARRAY pidls,
-      DWORD flags);
-
-  static SHOpenFolderAndSelectItemsFuncPtr open_folder_and_select_itemsPtr =
-      NULL;
-  static bool initialize_open_folder_proc = true;
-  if (initialize_open_folder_proc) {
-    initialize_open_folder_proc = false;
-    // The SHOpenFolderAndSelectItems API is exposed by shell32 version 6
-    // and does not exist in Win2K. We attempt to retrieve this function export
-    // from shell32 and if it does not exist, we just invoke ShellExecute to
-    // open the folder thus losing the functionality to select the item in
-    // the process.
-    HMODULE shell32_base = GetModuleHandle(L"shell32.dll");
-    if (!shell32_base) {
-      NOTREACHED() << " " << __FUNCTION__ << "(): Can't open shell32.dll";
-      return false;
-    }
-    open_folder_and_select_itemsPtr =
-        reinterpret_cast<SHOpenFolderAndSelectItemsFuncPtr>(
-            GetProcAddress(shell32_base, "SHOpenFolderAndSelectItems"));
-  }
-  if (!open_folder_and_select_itemsPtr) {
-    return ui::win::OpenFolderViaShell(dir);
-  }
-
   Microsoft::WRL::ComPtr<IShellFolder> desktop;
   HRESULT hr = SHGetDesktopFolder(desktop.GetAddressOf());
   if (FAILED(hr))
@@ -290,8 +263,8 @@ bool ShowItemInFolder(const base::FilePath& full_path) {
 
   const ITEMIDLIST* highlight[] = {file_item};
 
-  hr = (*open_folder_and_select_itemsPtr)(dir_item, arraysize(highlight),
-                                          highlight, NULL);
+  hr = SHOpenFolderAndSelectItems(dir_item, arraysize(highlight), highlight,
+                                  NULL);
   if (!FAILED(hr))
     return true;
 
@@ -321,15 +294,18 @@ bool OpenItem(const base::FilePath& full_path) {
     return ui::win::OpenFileViaShell(full_path);
 }
 
-bool OpenExternal(const base::string16& url, bool activate) {
+bool OpenExternal(const base::string16& url,
+                  const OpenExternalOptions& options) {
   // Quote the input scheme to be sure that the command does not have
   // parameters unexpected by the external program. This url should already
   // have been escaped.
   base::string16 escaped_url = L"\"" + url + L"\"";
+  auto working_dir = options.working_dir.value();
 
-  if (reinterpret_cast<ULONG_PTR>(ShellExecuteW(
-          NULL, L"open", escaped_url.c_str(), NULL, NULL, SW_SHOWNORMAL)) <=
-      32) {
+  if (reinterpret_cast<ULONG_PTR>(
+          ShellExecuteW(nullptr, L"open", escaped_url.c_str(), nullptr,
+                        working_dir.empty() ? nullptr : working_dir.c_str(),
+                        SW_SHOWNORMAL)) <= 32) {
     // We fail to execute the call. We could display a message to the user.
     // TODO(nsylvain): we should also add a dialog to warn on errors. See
     // bug 1136923.
@@ -339,10 +315,10 @@ bool OpenExternal(const base::string16& url, bool activate) {
 }
 
 void OpenExternal(const base::string16& url,
-                  bool activate,
+                  const OpenExternalOptions& options,
                   const OpenExternalCallback& callback) {
   // TODO(gabriel): Implement async open if callback is specified
-  callback.Run(OpenExternal(url, activate) ? "" : "Failed to open");
+  callback.Run(OpenExternal(url, options) ? "" : "Failed to open");
 }
 
 bool MoveItemToTrash(const base::FilePath& path) {

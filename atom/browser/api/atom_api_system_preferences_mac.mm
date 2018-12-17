@@ -6,14 +6,67 @@
 
 #include <map>
 
+#import <AVFoundation/AVFoundation.h>
 #import <Cocoa/Cocoa.h>
 
+#include "atom/browser/mac/atom_application.h"
 #include "atom/browser/mac/dict_util.h"
 #include "atom/common/native_mate_converters/gurl_converter.h"
 #include "atom/common/native_mate_converters/value_converter.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/values.h"
+#include "native_mate/object_template_builder.h"
 #include "net/base/mac/url_conversions.h"
+
+namespace mate {
+template <>
+struct Converter<NSAppearance*> {
+  static bool FromV8(v8::Isolate* isolate,
+                     v8::Local<v8::Value> val,
+                     NSAppearance** out) {
+    if (val->IsNull()) {
+      *out = nil;
+      return true;
+    }
+
+    std::string name;
+    if (!mate::ConvertFromV8(isolate, val, &name)) {
+      return false;
+    }
+
+    if (name == "light") {
+      *out = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+      return true;
+    } else if (name == "dark") {
+      if (@available(macOS 10.14, *)) {
+        *out = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+      } else {
+        *out = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  static v8::Local<v8::Value> ToV8(v8::Isolate* isolate, NSAppearance* val) {
+    if (val == nil) {
+      return v8::Null(isolate);
+    }
+
+    if (val.name == NSAppearanceNameAqua) {
+      return mate::ConvertToV8(isolate, "light");
+    }
+    if (@available(macOS 10.14, *)) {
+      if (val.name == NSAppearanceNameDarkAqua) {
+        return mate::ConvertToV8(isolate, "dark");
+      }
+    }
+
+    return mate::ConvertToV8(isolate, "unknown");
+  }
+};
+}  // namespace mate
 
 namespace atom {
 
@@ -26,12 +79,45 @@ int g_next_id = 0;
 // The map to convert |id| to |int|.
 std::map<int, id> g_id_map;
 
+AVMediaType ParseMediaType(const std::string& media_type) {
+  if (media_type == "camera") {
+    return AVMediaTypeVideo;
+  } else if (media_type == "microphone") {
+    return AVMediaTypeAudio;
+  } else {
+    return nil;
+  }
+}
+
+std::string ConvertAuthorizationStatus(AVAuthorizationStatusMac status) {
+  switch (status) {
+    case AVAuthorizationStatusNotDeterminedMac:
+      return "not-determined";
+    case AVAuthorizationStatusRestrictedMac:
+      return "restricted";
+    case AVAuthorizationStatusDeniedMac:
+      return "denied";
+    case AVAuthorizationStatusAuthorizedMac:
+      return "granted";
+    default:
+      return "unknown";
+  }
+}
+
 }  // namespace
 
-void SystemPreferences::PostNotification(
-    const std::string& name,
-    const base::DictionaryValue& user_info) {
-  DoPostNotification(name, user_info, kNSDistributedNotificationCenter);
+void SystemPreferences::PostNotification(const std::string& name,
+                                         const base::DictionaryValue& user_info,
+                                         mate::Arguments* args) {
+  bool immediate = false;
+  args->GetNext(&immediate);
+
+  NSDistributedNotificationCenter* center =
+      [NSDistributedNotificationCenter defaultCenter];
+  [center postNotificationName:base::SysUTF8ToNSString(name)
+                        object:nil
+                      userInfo:DictionaryValueToNSDictionary(user_info)
+            deliverImmediately:immediate];
 }
 
 int SystemPreferences::SubscribeNotification(
@@ -48,7 +134,10 @@ void SystemPreferences::UnsubscribeNotification(int request_id) {
 void SystemPreferences::PostLocalNotification(
     const std::string& name,
     const base::DictionaryValue& user_info) {
-  DoPostNotification(name, user_info, kNSNotificationCenter);
+  NSNotificationCenter* center = [NSNotificationCenter defaultCenter];
+  [center postNotificationName:base::SysUTF8ToNSString(name)
+                        object:nil
+                      userInfo:DictionaryValueToNSDictionary(user_info)];
 }
 
 int SystemPreferences::SubscribeLocalNotification(
@@ -64,7 +153,11 @@ void SystemPreferences::UnsubscribeLocalNotification(int request_id) {
 void SystemPreferences::PostWorkspaceNotification(
     const std::string& name,
     const base::DictionaryValue& user_info) {
-  DoPostNotification(name, user_info, kNSWorkspaceNotificationCenter);
+  NSNotificationCenter* center =
+      [[NSWorkspace sharedWorkspace] notificationCenter];
+  [center postNotificationName:base::SysUTF8ToNSString(name)
+                        object:nil
+                      userInfo:DictionaryValueToNSDictionary(user_info)];
 }
 
 int SystemPreferences::SubscribeWorkspaceNotification(
@@ -76,29 +169,6 @@ int SystemPreferences::SubscribeWorkspaceNotification(
 
 void SystemPreferences::UnsubscribeWorkspaceNotification(int request_id) {
   DoUnsubscribeNotification(request_id, kNSWorkspaceNotificationCenter);
-}
-
-void SystemPreferences::DoPostNotification(
-    const std::string& name,
-    const base::DictionaryValue& user_info,
-    NotificationCenterKind kind) {
-  NSNotificationCenter* center;
-  switch (kind) {
-    case kNSDistributedNotificationCenter:
-      center = [NSDistributedNotificationCenter defaultCenter];
-      break;
-    case kNSNotificationCenter:
-      center = [NSNotificationCenter defaultCenter];
-      break;
-    case kNSWorkspaceNotificationCenter:
-      center = [[NSWorkspace sharedWorkspace] notificationCenter];
-      break;
-    default:
-      break;
-  }
-  [center postNotificationName:base::SysUTF8ToNSString(name)
-                        object:nil
-                      userInfo:DictionaryValueToNSDictionary(user_info)];
 }
 
 int SystemPreferences::DoSubscribeNotification(
@@ -308,6 +378,47 @@ void SystemPreferences::SetUserDefault(const std::string& name,
   }
 }
 
+std::string SystemPreferences::GetMediaAccessStatus(
+    const std::string& media_type,
+    mate::Arguments* args) {
+  if (auto type = ParseMediaType(media_type)) {
+    if (@available(macOS 10.14, *)) {
+      return ConvertAuthorizationStatus(
+          [AVCaptureDevice authorizationStatusForMediaType:type]);
+    } else {
+      // access always allowed pre-10.14 Mojave
+      return ConvertAuthorizationStatus(AVAuthorizationStatusAuthorizedMac);
+    }
+  } else {
+    args->ThrowError("Invalid media type");
+    return std::string();
+  }
+}
+
+v8::Local<v8::Promise> SystemPreferences::AskForMediaAccess(
+    v8::Isolate* isolate,
+    const std::string& media_type) {
+  scoped_refptr<util::Promise> promise = new util::Promise(isolate);
+
+  if (auto type = ParseMediaType(media_type)) {
+    if (@available(macOS 10.14, *)) {
+      [AVCaptureDevice requestAccessForMediaType:type
+                               completionHandler:^(BOOL granted) {
+                                 dispatch_async(dispatch_get_main_queue(), ^{
+                                   promise->Resolve(!!granted);
+                                 });
+                               }];
+    } else {
+      // access always allowed pre-10.14 Mojave
+      promise->Resolve(true);
+    }
+  } else {
+    promise->RejectWithErrorMessage("Invalid media type");
+  }
+
+  return promise->GetHandle();
+}
+
 void SystemPreferences::RemoveUserDefault(const std::string& name) {
   NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
   [defaults removeObjectForKey:base::SysUTF8ToNSString(name)];
@@ -321,6 +432,35 @@ bool SystemPreferences::IsDarkMode() {
 
 bool SystemPreferences::IsSwipeTrackingFromScrollEventsEnabled() {
   return [NSEvent isSwipeTrackingFromScrollEventsEnabled];
+}
+
+v8::Local<v8::Value> SystemPreferences::GetEffectiveAppearance(
+    v8::Isolate* isolate) {
+  if (@available(macOS 10.14, *)) {
+    return mate::ConvertToV8(
+        isolate, [NSApplication sharedApplication].effectiveAppearance);
+  }
+  return v8::Null(isolate);
+}
+
+v8::Local<v8::Value> SystemPreferences::GetAppLevelAppearance(
+    v8::Isolate* isolate) {
+  if (@available(macOS 10.14, *)) {
+    return mate::ConvertToV8(isolate,
+                             [NSApplication sharedApplication].appearance);
+  }
+  return v8::Null(isolate);
+}
+
+void SystemPreferences::SetAppLevelAppearance(mate::Arguments* args) {
+  if (@available(macOS 10.14, *)) {
+    NSAppearance* appearance;
+    if (args->GetNext(&appearance)) {
+      [[NSApplication sharedApplication] setAppearance:appearance];
+    } else {
+      args->ThrowError("Invalid app appearance provided as first argument");
+    }
+  }
 }
 
 }  // namespace api

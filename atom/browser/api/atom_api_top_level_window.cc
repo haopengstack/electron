@@ -19,6 +19,8 @@
 #include "atom/common/native_mate_converters/string16_converter.h"
 #include "atom/common/native_mate_converters/value_converter.h"
 #include "atom/common/options_switches.h"
+#include "electron/buildflags/buildflags.h"
+#include "gin/converter.h"
 #include "native_mate/handle.h"
 #include "native_mate/persistent_dictionary.h"
 
@@ -79,7 +81,7 @@ TopLevelWindow::TopLevelWindow(v8::Isolate* isolate,
   if (options.Get("parent", &parent) && !parent.IsEmpty())
     parent_window_.Reset(isolate, parent.ToV8());
 
-#if defined(ENABLE_OSR)
+#if BUILDFLAG(ENABLE_OSR)
   // Offscreen windows are always created frameless.
   mate::Dictionary web_preferences;
   bool offscreen;
@@ -142,6 +144,11 @@ void TopLevelWindow::WillCloseWindow(bool* prevent_default) {
 }
 
 void TopLevelWindow::OnWindowClosed() {
+  // Invalidate weak ptrs before the Javascript object is destroyed,
+  // there might be some delayed emit events which shouldn't be
+  // triggered after this.
+  weak_factory_.InvalidateWeakPtrs();
+
   RemoveFromWeakMap();
   window_->RemoveObserver(this);
 
@@ -163,11 +170,11 @@ void TopLevelWindow::OnWindowEndSession() {
 }
 
 void TopLevelWindow::OnWindowBlur() {
-  Emit("blur");
+  EmitEventSoon("blur");
 }
 
 void TopLevelWindow::OnWindowFocus() {
-  Emit("focus");
+  EmitEventSoon("focus");
 }
 
 void TopLevelWindow::OnWindowShow() {
@@ -194,8 +201,22 @@ void TopLevelWindow::OnWindowRestore() {
   Emit("restore");
 }
 
+void TopLevelWindow::OnWindowWillResize(const gfx::Rect& new_bounds,
+                                        bool* prevent_default) {
+  if (Emit("will-resize", new_bounds)) {
+    *prevent_default = true;
+  }
+}
+
 void TopLevelWindow::OnWindowResize() {
   Emit("resize");
+}
+
+void TopLevelWindow::OnWindowWillMove(const gfx::Rect& new_bounds,
+                                      bool* prevent_default) {
+  if (Emit("will-move", new_bounds)) {
+    *prevent_default = true;
+  }
 }
 
 void TopLevelWindow::OnWindowMove() {
@@ -242,7 +263,11 @@ void TopLevelWindow::OnWindowLeaveHtmlFullScreen() {
   Emit("leave-html-full-screen");
 }
 
-void TopLevelWindow::OnExecuteWindowsCommand(const std::string& command_name) {
+void TopLevelWindow::OnWindowAlwaysOnTopChanged() {
+  Emit("always-on-top-changed", IsAlwaysOnTop());
+}
+
+void TopLevelWindow::OnExecuteAppCommand(const std::string& command_name) {
   Emit("app-command", command_name);
 }
 
@@ -358,6 +383,14 @@ gfx::Rect TopLevelWindow::GetBounds() {
   return window_->GetBounds();
 }
 
+bool TopLevelWindow::IsNormal() {
+  return window_->IsNormal();
+}
+
+gfx::Rect TopLevelWindow::GetNormalBounds() {
+  return window_->GetNormalBounds();
+}
+
 void TopLevelWindow::SetContentBounds(const gfx::Rect& bounds,
                                       mate::Arguments* args) {
   bool animate = false;
@@ -371,8 +404,10 @@ gfx::Rect TopLevelWindow::GetContentBounds() {
 
 void TopLevelWindow::SetSize(int width, int height, mate::Arguments* args) {
   bool animate = false;
+  gfx::Size size = window_->GetMinimumSize();
+  size.SetToMax(gfx::Size(width, height));
   args->GetNext(&animate);
-  window_->SetSize(gfx::Size(width, height), animate);
+  window_->SetSize(size, animate);
 }
 
 std::vector<int> TopLevelWindow::GetSize() {
@@ -571,6 +606,10 @@ double TopLevelWindow::GetOpacity() {
   return window_->GetOpacity();
 }
 
+void TopLevelWindow::SetShape(const std::vector<gfx::Rect>& rects) {
+  window_->widget()->SetShape(std::make_unique<std::vector<gfx::Rect>>(rects));
+}
+
 void TopLevelWindow::SetRepresentedFilename(const std::string& filename) {
   window_->SetRepresentedFilename(filename);
 }
@@ -605,7 +644,8 @@ void TopLevelWindow::SetFocusable(bool focusable) {
 void TopLevelWindow::SetMenu(v8::Isolate* isolate, v8::Local<v8::Value> value) {
   mate::Handle<Menu> menu;
   if (value->IsObject() &&
-      mate::V8ToString(value->ToObject()->GetConstructorName()) == "Menu" &&
+      gin::V8ToString(
+          isolate, value->ToObject(isolate)->GetConstructorName()) == "Menu" &&
       mate::ConvertFromV8(isolate, value, &menu) && !menu.IsEmpty()) {
     menu_.Reset(isolate, menu.ToV8());
     window_->SetMenu(menu->model());
@@ -631,6 +671,7 @@ void TopLevelWindow::SetParentWindow(v8::Local<v8::Value> value,
     parent_window_.Reset();
     window_->SetParentWindow(nullptr);
   } else if (mate::ConvertFromV8(isolate(), value, &parent)) {
+    RemoveFromParentChildWindows();
     parent_window_.Reset(isolate(), value);
     window_->SetParentWindow(parent->window_.get());
     parent->child_windows_.Set(isolate(), weak_map_id(), GetWrapper());
@@ -653,8 +694,11 @@ void TopLevelWindow::SetBrowserView(v8::Local<v8::Value> value) {
 }
 
 v8::Local<v8::Value> TopLevelWindow::GetNativeWindowHandle() {
-  gfx::AcceleratedWidget handle = window_->GetAcceleratedWidget();
-  return ToBuffer(isolate(), static_cast<void*>(&handle), sizeof(handle));
+  // TODO(MarshallOfSound): Replace once
+  // https://chromium-review.googlesource.com/c/chromium/src/+/1253094/ has
+  // landed
+  NativeWindowHandle handle = window_->GetNativeWindowHandle();
+  return ToBuffer(isolate(), &handle, sizeof(handle));
 }
 
 void TopLevelWindow::SetProgressBar(double progress, mate::Arguments* args) {
@@ -680,8 +724,13 @@ void TopLevelWindow::SetOverlayIcon(const gfx::Image& overlay,
   window_->SetOverlayIcon(overlay, description);
 }
 
-void TopLevelWindow::SetVisibleOnAllWorkspaces(bool visible) {
-  return window_->SetVisibleOnAllWorkspaces(visible);
+void TopLevelWindow::SetVisibleOnAllWorkspaces(bool visible,
+                                               mate::Arguments* args) {
+  mate::Dictionary options;
+  bool visibleOnFullScreen = false;
+  args->GetNext(&options) &&
+      options.Get("visibleOnFullScreen", &visibleOnFullScreen);
+  return window_->SetVisibleOnAllWorkspaces(visible, visibleOnFullScreen);
 }
 
 bool TopLevelWindow::IsVisibleOnAllWorkspaces() {
@@ -692,9 +741,9 @@ void TopLevelWindow::SetAutoHideCursor(bool auto_hide) {
   window_->SetAutoHideCursor(auto_hide);
 }
 
-void TopLevelWindow::SetVibrancy(mate::Arguments* args) {
-  std::string type;
-  args->GetNext(&type);
+void TopLevelWindow::SetVibrancy(v8::Isolate* isolate,
+                                 v8::Local<v8::Value> value) {
+  std::string type = gin::V8ToString(isolate, value);
   window_->SetVibrancy(type);
 }
 
@@ -736,6 +785,13 @@ void TopLevelWindow::AddTabbedWindow(NativeWindow* window,
                                      mate::Arguments* args) {
   if (!window_->AddTabbedWindow(window))
     args->ThrowError("AddTabbedWindow cannot be called by a window on itself.");
+}
+
+void TopLevelWindow::SetWindowButtonVisibility(bool visible,
+                                               mate::Arguments* args) {
+  if (!window_->SetWindowButtonVisibility(visible)) {
+    args->ThrowError("Not supported for this window");
+  }
 }
 
 void TopLevelWindow::SetAutoHideMenuBar(bool auto_hide) {
@@ -949,6 +1005,8 @@ void TopLevelWindow::BuildPrototype(v8::Isolate* isolate,
       .SetMethod("isFullScreen", &TopLevelWindow::IsFullscreen)
       .SetMethod("setBounds", &TopLevelWindow::SetBounds)
       .SetMethod("getBounds", &TopLevelWindow::GetBounds)
+      .SetMethod("isNormal", &TopLevelWindow::IsNormal)
+      .SetMethod("getNormalBounds", &TopLevelWindow::GetNormalBounds)
       .SetMethod("setSize", &TopLevelWindow::SetSize)
       .SetMethod("getSize", &TopLevelWindow::GetSize)
       .SetMethod("setContentBounds", &TopLevelWindow::SetContentBounds)
@@ -993,6 +1051,7 @@ void TopLevelWindow::BuildPrototype(v8::Isolate* isolate,
       .SetMethod("hasShadow", &TopLevelWindow::HasShadow)
       .SetMethod("setOpacity", &TopLevelWindow::SetOpacity)
       .SetMethod("getOpacity", &TopLevelWindow::GetOpacity)
+      .SetMethod("setShape", &TopLevelWindow::SetShape)
       .SetMethod("setRepresentedFilename",
                  &TopLevelWindow::SetRepresentedFilename)
       .SetMethod("getRepresentedFilename",
@@ -1003,9 +1062,7 @@ void TopLevelWindow::BuildPrototype(v8::Isolate* isolate,
       .SetMethod("setContentProtection", &TopLevelWindow::SetContentProtection)
       .SetMethod("setFocusable", &TopLevelWindow::SetFocusable)
       .SetMethod("setMenu", &TopLevelWindow::SetMenu)
-#if !defined(OS_WIN)
       .SetMethod("setParentWindow", &TopLevelWindow::SetParentWindow)
-#endif
       .SetMethod("setBrowserView", &TopLevelWindow::SetBrowserView)
       .SetMethod("getNativeWindowHandle",
                  &TopLevelWindow::GetNativeWindowHandle)
@@ -1030,6 +1087,8 @@ void TopLevelWindow::BuildPrototype(v8::Isolate* isolate,
       .SetMethod("moveTabToNewWindow", &TopLevelWindow::MoveTabToNewWindow)
       .SetMethod("toggleTabBar", &TopLevelWindow::ToggleTabBar)
       .SetMethod("addTabbedWindow", &TopLevelWindow::AddTabbedWindow)
+      .SetMethod("setWindowButtonVisibility",
+                 &TopLevelWindow::SetWindowButtonVisibility)
 #endif
       .SetMethod("setAutoHideMenuBar", &TopLevelWindow::SetAutoHideMenuBar)
       .SetMethod("isMenuBarAutoHide", &TopLevelWindow::IsMenuBarAutoHide)

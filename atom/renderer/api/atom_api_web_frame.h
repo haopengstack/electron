@@ -9,10 +9,9 @@
 #include <string>
 #include <vector>
 
-#include "atom/renderer/guest_view_container.h"
 #include "native_mate/handle.h"
 #include "native_mate/wrappable.h"
-#include "third_party/WebKit/public/platform/WebCache.h"
+#include "third_party/blink/public/platform/web_cache.h"
 
 namespace blink {
 class WebLocalFrame;
@@ -52,18 +51,14 @@ class WebFrame : public mate::Wrappable<WebFrame> {
   void SetLayoutZoomLevelLimits(double min_level, double max_level);
 
   v8::Local<v8::Value> RegisterEmbedderCustomElement(
+      v8::Local<v8::Object> context,
       const base::string16& name,
       v8::Local<v8::Object> options);
-  void RegisterElementResizeCallback(
-      int element_instance_id,
-      const GuestViewContainer::ResizeCallback& callback);
-  void AttachGuest(int element_instance_id);
-  void DetachGuest(int element_instance_id);
+  int GetWebFrameId(v8::Local<v8::Value> content_window);
 
   // Set the provider that will be used by SpellCheckClient for spell check.
   void SetSpellCheckProvider(mate::Arguments* args,
                              const std::string& language,
-                             bool auto_spell_correct_turned_on,
                              v8::Local<v8::Object> provider);
 
   void RegisterURLSchemeAsBypassingCSP(const std::string& scheme);
